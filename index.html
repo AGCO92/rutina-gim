@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<title>Gym Tracker</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#1D6FA5" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Gym Tracker" />
+<link rel="apple-touch-icon" href="icon.svg" />
+<link rel="icon" href="icon.svg" type="image/svg+xml" />
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Lexend:wght@500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
+  :root {
+    --bg: #F3F7F5; --surface: #FFFFFF; --surface-alt: #EAF2ED;
+    --text: #101B15; --text-muted: #62766B;
+    --blue: #1D6FA5; --blue-soft: #DCEBF5;
+    --green: #2E9E5B; --green-soft: #DFF3E6;
+    --gold: #C98A1F; --gold-soft: #FBEDD1;
+    --border: #DBE5DF; --danger: #C4453F;
+    --shadow: 0 1px 2px rgba(16,27,21,0.04), 0 4px 14px rgba(16,27,21,0.06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0C1310; --surface: #141F19; --surface-alt: #1A2721;
+      --text: #E8F1EB; --text-muted: #8CA398;
+      --blue: #58ABE0; --blue-soft: #1B3348;
+      --green: #4ADE80; --green-soft: #17331F;
+      --gold: #F2BE5C; --gold-soft: #3A2E14;
+      --border: #253229; --danger: #E5726C;
+      --shadow: 0 1px 2px rgba(0,0,0,0.3), 0 4px 18px rgba(0,0,0,0.35);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  body { font-family: 'Inter', sans-serif; color: var(--text); }
+  .gt-display { font-family: 'Lexend', sans-serif; }
+  .gt-mono { font-family: 'JetBrains Mono', monospace; font-variant-numeric: tabular-nums; }
+  .gt-root {
+    min-height: 100vh; width: 100%; max-width: 480px; margin: 0 auto;
+    position: relative; padding-bottom: 84px;
+  }
+  .gt-scroll::-webkit-scrollbar { display: none; }
+  .gt-scroll { -ms-overflow-style: none; scrollbar-width: none; }
+  @keyframes gt-pop { 0%{transform:scale(.4) translateY(6px);opacity:0;} 55%{transform:scale(1.08) translateY(0);opacity:1;} 100%{transform:scale(1) translateY(0);opacity:1;} }
+  @keyframes gt-fadeup { 0%{opacity:0;transform:translateY(8px);} 100%{opacity:1;transform:translateY(0);} }
+  .gt-pr-pop { animation: gt-pop .35s cubic-bezier(.2,1.4,.4,1) both; }
+  .gt-fadeup { animation: gt-fadeup .25s ease both; }
+  input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance:none; margin:0; }
+  input[type=number] { -moz-appearance: textfield; }
+  input, select, button { font-family: inherit; }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+/* ---------------------------------------------------------
+   ICONOS (sin dependencias externas)
+--------------------------------------------------------- */
+const ICONS = {
+  flame: "🔥", trophy: "🏆", plus: "+", check: "✓", chevronRight: "›",
+  dumbbell: "🏋️‍♀️", trending: "📈", archive: "🗂️", x: "✕", pencil: "✏️",
+  trash: "🗑️", home: "🏠", chart: "📊", list: "📋", save: "💾", arrowLeft: "←",
+};
+function Icon({ name, size = 16, color }) {
+  return (
+    <span style={{ fontSize: size, lineHeight: 1, color: color || "inherit", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+      {ICONS[name] || ""}
+    </span>
+  );
+}
+
+/* ---------------------------------------------------------
+   UTILIDADES
+--------------------------------------------------------- */
+const uid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const fmtDateShort = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+const fmtDateLong = (iso) => new Date(iso + "T00:00:00").toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" });
+const daysBetween = (a, b) => Math.round((new Date(b + "T00:00:00") - new Date(a + "T00:00:00")) / 86400000);
+const DAY_LABELS = ["Día 1", "Día 2", "Día 3", "Día 4", "Día 5"];
+
+function weekLabelFor(session, routine) {
+  if (!routine) return "";
+  const diff = daysBetween(routine.startDate, session.date);
+  const weekNum = Math.max(1, Math.floor(diff / 7) + 1);
+  const weekStart = new Date(routine.startDate + "T00:00:00");
+  weekStart.setDate(weekStart.getDate() + (weekNum - 1) * 7);
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const f = (d) => d.toLocaleDateString("es-AR", { day: "2-digit", month: "short" });
+  return `Semana ${weekNum}: ${f(weekStart)} – ${f(weekEnd)}`;
+}
+function parsePrefillReps(repRange) {
+  if (!repRange) return "";
+  const m = String(repRange).match(/\d+/);
+  return m ? m[0] : "";
+}
+
+/* ---------------------------------------------------------
+   PERSISTENCIA (localStorage, independiente de Claude)
+--------------------------------------------------------- */
+const STORAGE_KEY = "gym-tracker-data-v1";
+const emptyData = () => ({ exercises: [], routines: [], sessions: [] });
+
+function loadData() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : emptyData();
+  } catch (e) {
+    return emptyData();
+  }
+}
+
+function useGymData() {
+  const [data, setData] = useState(loadData);
+  const [saveState, setSaveState] = useState("idle");
+
+  const persist = (next) => {
+    setData(next);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 1500);
+    } catch (e) {
+      setSaveState("error");
+    }
+    return Promise.resolve(next);
+  };
+
+  return { data, loaded: true, persist, saveState };
+}
+
+/* ---------------------------------------------------------
+   HELPERS DE DOMINIO
+--------------------------------------------------------- */
+function getActiveRoutine(data) { return data.routines.find((r) => r.active) || null; }
+function getArchivedRoutines(data) { return data.routines.filter((r) => !r.active).sort((a, b) => (a.startDate < b.startDate ? 1 : -1)); }
+function findExercise(data, id) { return data.exercises.find((e) => e.id === id); }
+
+function lastEntryForPlanned(data, plannedId, excludeSessionId) {
+  const sessions = data.sessions.filter((s) => s.id !== excludeSessionId).sort((a, b) => (a.date < b.date ? 1 : -1));
+  for (const s of sessions) {
+    const entry = s.entries.find((e) => e.plannedExerciseId === plannedId);
+    if (entry && entry.sets.length > 0) return entry;
+  }
+  return null;
+}
+function maxWeightInEntry(entry) {
+  if (!entry || !entry.sets.length) return 0;
+  return Math.max(...entry.sets.map((s) => Number(s.weight) || 0));
+}
+function bestWeightForPlanned(data, plannedId, excludeSessionId) {
+  const sessions = data.sessions.filter((s) => s.id !== excludeSessionId);
+  let best = 0;
+  for (const s of sessions) {
+    const entry = s.entries.find((e) => e.plannedExerciseId === plannedId);
+    if (entry) best = Math.max(best, maxWeightInEntry(entry));
+  }
+  return best;
+}
+async function deleteRoutine(data, persist, routineId) {
+  const routines = data.routines.filter((r) => r.id !== routineId);
+  const sessions = data.sessions.filter((s) => s.routineId !== routineId);
+  await persist({ ...data, routines, sessions });
+}
+
+/* ---------------------------------------------------------
+   COMPONENTES CHICOS
+--------------------------------------------------------- */
+const iconBtnStyle = { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "var(--text)" };
+const primaryBtnStyle = { background: "var(--blue)", color: "#fff", border: "none", borderRadius: 12, padding: "11px 18px", fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" };
+const secondaryBtnStyle = { background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 12, padding: "11px 18px", fontWeight: 600, fontSize: 14, display: "flex", alignItems: "center", gap: 6, cursor: "pointer" };
+const labelStyle = { display: "block", fontSize: 12.5, fontWeight: 600, color: "var(--text-muted)", margin: "14px 0 6px" };
+const textInputStyle = { width: "100%", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 10, padding: "10px 12px", fontSize: 14, color: "var(--text)" };
+const numInputStyle = { width: "100%", background: "var(--surface-alt)", border: "1px solid var(--border)", borderRadius: 8, padding: "7px 6px", fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: "var(--text)", textAlign: "center" };
+
+function SaveIndicator({ state }) {
+  if (state === "idle") return null;
+  const label = state === "saving" ? "Guardando…" : state === "saved" ? "Guardado" : "Error al guardar";
+  const color = state === "error" ? "var(--danger)" : "var(--text-muted)";
+  return <div style={{ fontSize: 11, color, display: "flex", alignItems: "center", gap: 4 }}>{state === "saved" && <Icon name="check" size={12} />}{label}</div>;
+}
+
+function TopBar({ title, onBack, right }) {
+  return (
+    <div style={{ position: "sticky", top: 0, zIndex: 10, background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "18px 20px 12px", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {onBack && <button onClick={onBack} aria-label="Volver" style={iconBtnStyle}><Icon name="arrowLeft" size={18} /></button>}
+        <h1 className="gt-display" style={{ fontSize: 20, fontWeight: 700, margin: 0 }}>{title}</h1>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+function BottomNav({ screen, setScreen }) {
+  const items = [
+    { key: "home", label: "Inicio", icon: "home" },
+    { key: "routine", label: "Rutina", icon: "list" },
+    { key: "stats", label: "Progreso", icon: "chart" },
+    { key: "archive", label: "Archivo", icon: "archive" },
+  ];
+  return (
+    <div style={{ position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, background: "var(--surface)", borderTop: "1px solid var(--border)", display: "flex", padding: "8px 6px calc(8px + env(safe-area-inset-bottom))", zIndex: 20 }}>
+      {items.map(({ key, label, icon }) => {
+        const active = screen === key || (screen === "log" && key === "home");
+        return (
+          <button key={key} onClick={() => setScreen(key)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, background: "none", border: "none", cursor: "pointer", padding: "6px 0", color: active ? "var(--blue)" : "var(--text-muted)" }}>
+            <Icon name={icon} size={19} />
+            <span style={{ fontSize: 11, fontWeight: active ? 600 : 500 }}>{label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmptyState({ iconName, title, subtitle, action }) {
+  return (
+    <div className="gt-fadeup" style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", padding: "60px 30px", gap: 10 }}>
+      <div style={{ width: 56, height: 56, borderRadius: 16, background: "var(--surface-alt)", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 6 }}>
+        <Icon name={iconName} size={26} />
+      </div>
+      <div className="gt-display" style={{ fontSize: 17, fontWeight: 700 }}>{title}</div>
+      <div style={{ fontSize: 14, color: "var(--text-muted)", lineHeight: 1.5 }}>{subtitle}</div>
+      {action}
+    </div>
+  );
+}
+
+function ConfirmModal({ title, message, confirmLabel = "Eliminar", onConfirm, onCancel }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,12,0.5)", zIndex: 40, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={onCancel}>
+      <div onClick={(e) => e.stopPropagation()} className="gt-fadeup" style={{ background: "var(--surface)", borderRadius: 18, padding: 20, width: "100%", maxWidth: 340, boxShadow: "var(--shadow)" }}>
+        <div className="gt-display" style={{ fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{title}</div>
+        <div style={{ fontSize: 13.5, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 18 }}>{message}</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={onCancel} style={{ ...secondaryBtnStyle, flex: 1, justifyContent: "center" }}>Cancelar</button>
+          <button onClick={onConfirm} style={{ flex: 1, justifyContent: "center", display: "flex", alignItems: "center", gap: 6, background: "var(--danger)", color: "#fff", border: "none", borderRadius: 12, padding: "11px 18px", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+            <Icon name="trash" size={14} /> {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   GRÁFICO SVG SIMPLE (sin dependencias)
+--------------------------------------------------------- */
+function MiniLineChart({ data, dataKey, color, unit }) {
+  const width = 320, height = 190, padX = 26, padTop = 26, padBottom = 26;
+  const values = data.map((d) => d[dataKey]);
+  const min = Math.min(...values), max = Math.max(...values);
+  const range = max - min || 1;
+  const innerW = width - padX * 2;
+  const innerH = height - padTop - padBottom;
+  const stepX = data.length > 1 ? innerW / (data.length - 1) : 0;
+  const points = data.map((d, i) => ({
+    x: padX + i * stepX,
+    y: padTop + innerH - ((d[dataKey] - min) / range) * innerH,
+    ...d,
+  }));
+  const path = points.map((p, i) => (i === 0 ? "M" : "L") + p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height: "auto", display: "block" }}>
+      {[0, 0.5, 1].map((f, i) => (
+        <line key={i} x1={padX} x2={width - padX} y1={padTop + f * innerH} y2={padTop + f * innerH} stroke="var(--border)" strokeWidth="1" />
+      ))}
+      <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      {points.map((p, i) => (
+        <g key={i}>
+          <circle cx={p.x} cy={p.y} r="3.5" fill={color} />
+          <text x={p.x} y={p.y - 9} fontSize="9" textAnchor="middle" fill="var(--text)" fontFamily="'JetBrains Mono', monospace" fontWeight="600">{p[dataKey]}{unit}</text>
+          <text x={p.x} y={height - 8} fontSize="8.5" textAnchor="middle" fill="var(--text-muted)">{p.dateLabel}</text>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+function ChartBlock({ title, dataKey, color, data, unit }) {
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div className="gt-display" style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>{title}</div>
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "14px 10px 6px", boxShadow: "var(--shadow)" }}>
+        <MiniLineChart data={data} dataKey={dataKey} color={color} unit={unit} />
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   PANTALLA: HOME
+--------------------------------------------------------- */
+function HomeScreen({ data, goLog, goRoutine }) {
+  const routine = getActiveRoutine(data);
+  if (!routine) {
+    return (
+      <div>
+        <TopBar title="Tu rutina" />
+        <EmptyState iconName="dumbbell" title="Todavía no armaste una rutina" subtitle="Cargá tus 5 días con ejercicios, series, reps y RPE para empezar a registrar tus entrenamientos."
+          action={<button onClick={goRoutine} style={primaryBtnStyle}><Icon name="plus" size={16} /> Crear rutina</button>} />
+      </div>
+    );
+  }
+  const weekNum = Math.max(1, Math.floor(daysBetween(routine.startDate, todayISO()) / 7) + 1);
+  return (
+    <div>
+      <TopBar title="Hoy entrenás" />
+      <div style={{ padding: "0 20px 8px" }}>
+        <div className="gt-fadeup" style={{ background: "var(--blue-soft)", borderRadius: 16, padding: "14px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div>
+            <div className="gt-display" style={{ fontWeight: 700, fontSize: 15 }}>{routine.name}</div>
+            <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginTop: 2 }}>Semana {weekNum} · desde {fmtDateShort(routine.startDate)}</div>
+          </div>
+          <Icon name="flame" size={22} color="var(--blue)" />
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-muted)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.4 }}>Elegí tu día</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {routine.days.map((day, idx) => {
+            const lastSession = data.sessions.filter((s) => s.dayId === day.id).sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+            return (
+              <button key={day.id} onClick={() => goLog(routine.id, day.id)} className="gt-fadeup" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "14px 16px", cursor: "pointer", boxShadow: "var(--shadow)", textAlign: "left", animationDelay: `${idx * 40}ms` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: "var(--green-soft)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--green)", fontWeight: 700, fontFamily: "Lexend" }}>{idx + 1}</div>
+                  <div>
+                    <div className="gt-display" style={{ fontWeight: 600, fontSize: 15 }}>{day.label}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                      {day.exercises.length} ejercicio{day.exercises.length !== 1 ? "s" : ""}{lastSession ? ` · último ${fmtDateShort(lastSession.date)}` : " · sin registros"}
+                    </div>
+                  </div>
+                </div>
+                <Icon name="chevronRight" size={18} color="var(--text-muted)" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   PANTALLA: REGISTRO DE SESIÓN
+--------------------------------------------------------- */
+function LogSessionScreen({ data, persist, routineId, dayId, goHome }) {
+  const routine = data.routines.find((r) => r.id === routineId);
+  const day = routine?.days.find((d) => d.id === dayId);
+  const existingSession = data.sessions.find((s) => s.dayId === dayId && s.date === todayISO());
+
+  const buildInitialEntries = () =>
+    (day?.exercises || []).map((planned) => {
+      const existingEntry = existingSession?.entries.find((e) => e.plannedExerciseId === planned.id);
+      if (existingEntry) return existingEntry;
+      const lastEntry = lastEntryForPlanned(data, planned.id, existingSession?.id);
+      const lastWeight = lastEntry ? maxWeightInEntry(lastEntry) : "";
+      const sets = Array.from({ length: planned.sets }).map((_, i) => ({
+        setNumber: i + 1, weight: lastWeight || "", reps: parsePrefillReps(planned.repRange), rpe: planned.rpe || "",
+      }));
+      return { plannedExerciseId: planned.id, exerciseId: planned.exerciseId, sets };
+    });
+
+  const [entries, setEntries] = useState(buildInitialEntries);
+  const [prFlash, setPrFlash] = useState({});
+  const [saveMsg, setSaveMsg] = useState("");
+
+  if (!routine || !day) {
+    return <div><TopBar title="Registro" onBack={goHome} /><EmptyState iconName="dumbbell" title="No encontramos ese día" subtitle="Volvé al inicio e intentá de nuevo." /></div>;
+  }
+
+  const updateSet = (entryIdx, setIdx, field, value) => {
+    setEntries((prev) => {
+      const next = prev.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) }));
+      next[entryIdx].sets[setIdx][field] = value;
+      return next;
+    });
+    if (field === "weight") {
+      const planned = day.exercises[entryIdx];
+      const best = bestWeightForPlanned(data, planned.id, existingSession?.id);
+      const val = Number(value) || 0;
+      const key = `${entryIdx}-${setIdx}`;
+      setPrFlash((prev) => {
+        const n = { ...prev };
+        if (val > 0 && val > best) n[key] = true; else delete n[key];
+        return n;
+      });
+    }
+  };
+
+  const addSet = (entryIdx) => {
+    setEntries((prev) => {
+      const next = prev.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) }));
+      const entry = next[entryIdx];
+      const planned = day.exercises[entryIdx];
+      const lastSet = entry.sets[entry.sets.length - 1];
+      entry.sets.push({ setNumber: entry.sets.length + 1, weight: lastSet?.weight || "", reps: parsePrefillReps(planned.repRange), rpe: planned.rpe || "" });
+      return next;
+    });
+  };
+  const removeSet = (entryIdx, setIdx) => {
+    setEntries((prev) => {
+      const next = prev.map((e) => ({ ...e, sets: e.sets.map((s) => ({ ...s })) }));
+      next[entryIdx].sets.splice(setIdx, 1);
+      next[entryIdx].sets.forEach((s, i) => (s.setNumber = i + 1));
+      return next;
+    });
+  };
+
+  const handleSave = () => {
+    const cleanEntries = entries.map((e) => ({
+      ...e,
+      sets: e.sets.filter((s) => s.weight !== "" || s.reps !== "").map((s) => ({
+        setNumber: s.setNumber, weight: Number(s.weight) || 0, reps: Number(s.reps) || 0, rpe: s.rpe === "" ? null : Number(s.rpe),
+      })),
+    }));
+    let sessions;
+    if (existingSession) {
+      sessions = data.sessions.map((s) => (s.id === existingSession.id ? { ...s, entries: cleanEntries } : s));
+    } else {
+      sessions = [...data.sessions, { id: uid(), date: todayISO(), routineId, dayId, entries: cleanEntries }];
+    }
+    persist({ ...data, sessions });
+    setSaveMsg("¡Sesión guardada!");
+    setTimeout(() => setSaveMsg(""), 1800);
+  };
+
+  return (
+    <div>
+      <TopBar title={day.label} onBack={goHome} />
+      <div style={{ padding: "0 20px" }}>
+        <div style={{ fontSize: 12.5, color: "var(--text-muted)", marginBottom: 16 }}>{fmtDateLong(todayISO())} · {routine.name}</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {day.exercises.map((planned, entryIdx) => {
+            const exercise = findExercise(data, planned.exerciseId);
+            const entry = entries[entryIdx];
+            return (
+              <div key={planned.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 14, boxShadow: "var(--shadow)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+                  <div className="gt-display" style={{ fontWeight: 700, fontSize: 15 }}>{exercise?.name}</div>
+                  <div className="gt-mono" style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{planned.sets}×{planned.repRange} · RPE {planned.rpe}</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, fontSize: 10.5, color: "var(--text-muted)", marginBottom: 4, fontWeight: 600 }}>
+                  <div>#</div><div>Peso (kg)</div><div>{planned.isTimed ? "Seg" : "Reps"}</div><div>RPE</div><div></div>
+                </div>
+                {entry.sets.map((set, setIdx) => {
+                  const key = `${entryIdx}-${setIdx}`;
+                  return (
+                    <div key={setIdx} style={{ position: "relative", display: "grid", gridTemplateColumns: "24px 1fr 1fr 1fr 24px", gap: 6, marginBottom: 6, alignItems: "center" }}>
+                      <div className="gt-mono" style={{ fontSize: 12, color: "var(--text-muted)", textAlign: "center" }}>{set.setNumber}</div>
+                      <div style={{ position: "relative" }}>
+                        <input type="number" inputMode="decimal" value={set.weight} onChange={(e) => updateSet(entryIdx, setIdx, "weight", e.target.value)} style={numInputStyle} />
+                        {prFlash[key] && (
+                          <div style={{ position: "absolute", right: -6, top: -22, display: "flex", alignItems: "center", gap: 2 }} className="gt-pr-pop">
+                            <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--gold)", background: "var(--gold-soft)", padding: "2px 5px", borderRadius: 6, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 2 }}>
+                              <Icon name="trophy" size={9} /> ¡PR!
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                      <input type="number" inputMode="decimal" value={set.reps} onChange={(e) => updateSet(entryIdx, setIdx, "reps", e.target.value)} style={numInputStyle} />
+                      <input type="number" inputMode="decimal" value={set.rpe} onChange={(e) => updateSet(entryIdx, setIdx, "rpe", e.target.value)} style={numInputStyle} />
+                      <button onClick={() => removeSet(entryIdx, setIdx)} style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", padding: 2 }} aria-label="Quitar serie"><Icon name="x" size={13} /></button>
+                    </div>
+                  );
+                })}
+                <button onClick={() => addSet(entryIdx)} style={{ marginTop: 4, background: "var(--surface-alt)", border: "none", borderRadius: 8, padding: "6px 10px", fontSize: 12, fontWeight: 600, color: "var(--blue)", display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}>
+                  <Icon name="plus" size={12} /> Agregar serie
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ margin: "20px 0 12px", display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+          <button onClick={handleSave} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", padding: "13px 18px" }}><Icon name="save" size={16} /> Guardar sesión</button>
+          {saveMsg && <div className="gt-fadeup" style={{ fontSize: 13, color: "var(--green)", fontWeight: 600, display: "flex", alignItems: "center", gap: 5 }}><Icon name="check" size={14} /> {saveMsg}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   PANTALLA: GESTIÓN DE RUTINA
+--------------------------------------------------------- */
+function RoutineScreen({ data, persist }) {
+  const active = getActiveRoutine(data);
+  const [mode, setMode] = useState(active ? "view" : "create");
+  if (mode === "view" && active) return <RoutineView routine={active} data={data} persist={persist} onEdit={() => setMode("create")} />;
+  return <RoutineEditor data={data} persist={persist} onDone={() => setMode("view")} existingActive={active} />;
+}
+
+function RoutineView({ routine, data, persist, onEdit }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const sessionCount = data.sessions.filter((s) => s.routineId === routine.id).length;
+  const handleDelete = () => { deleteRoutine(data, persist, routine.id); setConfirmingDelete(false); };
+
+  return (
+    <div>
+      <TopBar title="Tu rutina" right={<button onClick={onEdit} style={secondaryBtnStyle}><Icon name="pencil" size={13} /> Nueva rutina</button>} />
+      <div style={{ padding: "0 20px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 }}>
+          <div style={{ fontSize: 13, color: "var(--text-muted)" }}>
+            <span className="gt-display" style={{ fontWeight: 700, color: "var(--text)", fontSize: 16 }}>{routine.name}</span><br />
+            Activa desde {fmtDateLong(routine.startDate)}
+          </div>
+          <button onClick={() => setConfirmingDelete(true)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", padding: 4, display: "flex", alignItems: "center", gap: 4, fontSize: 12.5, fontWeight: 600, flexShrink: 0 }}>
+            <Icon name="trash" size={13} /> Eliminar
+          </button>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          {routine.days.map((day) => (
+            <div key={day.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 14, boxShadow: "var(--shadow)" }}>
+              <div className="gt-display" style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>{day.label}</div>
+              {day.exercises.length === 0 ? <div style={{ fontSize: 12.5, color: "var(--text-muted)" }}>Sin ejercicios cargados</div> : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  {day.exercises.map((p) => {
+                    const ex = findExercise(data, p.exerciseId);
+                    return <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}><span>{ex?.name}</span><span className="gt-mono" style={{ color: "var(--text-muted)", fontSize: 12 }}>{p.sets}×{p.repRange} · RPE {p.rpe}</span></div>;
+                  })}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      {confirmingDelete && (
+        <ConfirmModal title={`¿Eliminar "${routine.name}"?`}
+          message={sessionCount > 0 ? `Esto también va a borrar ${sessionCount} entrenamiento${sessionCount !== 1 ? "s" : ""} registrado${sessionCount !== 1 ? "s" : ""} en esta rutina. Esta acción no se puede deshacer.` : "Esta acción no se puede deshacer."}
+          onConfirm={handleDelete} onCancel={() => setConfirmingDelete(false)} />
+      )}
+    </div>
+  );
+}
+
+function RoutineEditor({ data, persist, onDone, existingActive }) {
+  const [name, setName] = useState("");
+  const [startDate, setStartDate] = useState(todayISO());
+  const [days, setDays] = useState(DAY_LABELS.map((label) => ({ id: uid(), label, exercises: [] })));
+  const [exercisePicker, setExercisePicker] = useState(null);
+
+  const updateDayExercises = (dayIdx, exercises) => setDays((prev) => prev.map((d, i) => (i === dayIdx ? { ...d, exercises } : d)));
+  const addExerciseToDay = (dayIdx, exercise, repRange, sets, rpe, isTimed) => {
+    updateDayExercises(dayIdx, [...days[dayIdx].exercises, { id: uid(), exerciseId: exercise.id, repRange, sets: Number(sets), rpe: Number(rpe), isTimed }]);
+  };
+  const removeExerciseFromDay = (dayIdx, plannedId) => updateDayExercises(dayIdx, days[dayIdx].exercises.filter((p) => p.id !== plannedId));
+
+  const canSave = name.trim() && days.some((d) => d.exercises.length > 0);
+
+  const handleCreateRoutine = () => {
+    let routines = data.routines;
+    if (existingActive) routines = routines.map((r) => (r.id === existingActive.id ? { ...r, active: false, endDate: todayISO() } : r));
+    const newRoutine = { id: uid(), name: name.trim(), startDate, endDate: null, active: true, days };
+    persist({ ...data, routines: [...routines, newRoutine] });
+    onDone();
+  };
+
+  return (
+    <div>
+      <TopBar title="Nueva rutina" onBack={existingActive ? onDone : undefined} />
+      <div style={{ padding: "0 20px" }}>
+        {existingActive && (
+          <div style={{ background: "var(--gold-soft)", color: "var(--gold)", fontSize: 12.5, padding: "10px 12px", borderRadius: 10, marginBottom: 16, fontWeight: 500 }}>
+            Al guardar, "{existingActive.name}" se va a archivar automáticamente.
+          </div>
+        )}
+        <label style={labelStyle}>Nombre de la rutina</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ej: Bloque Marzo-Abril 2026" style={textInputStyle} />
+        <label style={labelStyle}>Fecha de inicio</label>
+        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={textInputStyle} />
+        <div style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 14 }}>
+          {days.map((day, dayIdx) => (
+            <div key={day.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 14, boxShadow: "var(--shadow)" }}>
+              <div className="gt-display" style={{ fontWeight: 700, fontSize: 14.5, marginBottom: 8 }}>{day.label}</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                {day.exercises.map((p) => {
+                  const ex = findExercise(data, p.exerciseId);
+                  return (
+                    <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, background: "var(--surface-alt)", borderRadius: 8, padding: "6px 8px" }}>
+                      <span>{ex?.name}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <span className="gt-mono" style={{ color: "var(--text-muted)", fontSize: 11.5 }}>{p.sets}×{p.repRange} · RPE {p.rpe}</span>
+                        <button onClick={() => removeExerciseFromDay(dayIdx, p.id)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", padding: 2 }}><Icon name="trash" size={13} /></button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <button onClick={() => setExercisePicker(dayIdx)} style={{ ...secondaryBtnStyle, width: "100%", justifyContent: "center", padding: "8px" }}><Icon name="plus" size={13} /> Agregar ejercicio</button>
+            </div>
+          ))}
+        </div>
+        <button disabled={!canSave} onClick={handleCreateRoutine} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginTop: 20, padding: "13px 18px", opacity: canSave ? 1 : 0.45, cursor: canSave ? "pointer" : "not-allowed" }}>
+          <Icon name="save" size={16} /> Guardar rutina
+        </button>
+        <div style={{ height: 12 }} />
+      </div>
+      {exercisePicker !== null && (
+        <ExercisePickerModal data={data} onClose={() => setExercisePicker(null)}
+          onPersistNewExercise={(ex) => persist({ ...data, exercises: [...data.exercises, ex] })}
+          onAdd={(exercise, repRange, sets, rpe, isTimed) => { addExerciseToDay(exercisePicker, exercise, repRange, sets, rpe, isTimed); setExercisePicker(null); }} />
+      )}
+    </div>
+  );
+}
+
+function ExercisePickerModal({ data, onClose, onAdd, onPersistNewExercise }) {
+  const [step, setStep] = useState("pick");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [newName, setNewName] = useState("");
+  const [repRange, setRepRange] = useState("8-12");
+  const [sets, setSets] = useState(4);
+  const [rpe, setRpe] = useState(8);
+  const [isTimed, setIsTimed] = useState(false);
+
+  const filtered = data.exercises.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()));
+  const chooseExisting = (ex) => { setSelected(ex); setStep("config"); };
+  const createAndChoose = () => {
+    if (!newName.trim()) return;
+    const ex = { id: uid(), name: newName.trim() };
+    onPersistNewExercise(ex);
+    setSelected(ex);
+    setStep("config");
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,12,0.5)", zIndex: 30, display: "flex", alignItems: "flex-end", justifyContent: "center" }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--surface)", width: "100%", maxWidth: 480, borderRadius: "20px 20px 0 0", padding: 20, maxHeight: "80vh", overflowY: "auto" }} className="gt-scroll">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div className="gt-display" style={{ fontWeight: 700, fontSize: 16 }}>{step === "pick" ? "Elegir ejercicio" : selected?.name}</div>
+          <button onClick={onClose} style={iconBtnStyle}><Icon name="x" size={14} /></button>
+        </div>
+        {step === "pick" && (
+          <React.Fragment>
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar ejercicio..." style={{ ...textInputStyle, marginBottom: 12 }} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 220, overflowY: "auto" }} className="gt-scroll">
+              {filtered.map((ex) => (
+                <button key={ex.id} onClick={() => chooseExisting(ex)} style={{ textAlign: "left", background: "var(--surface-alt)", border: "none", borderRadius: 10, padding: "10px 12px", fontSize: 14, cursor: "pointer", color: "var(--text)" }}>{ex.name}</button>
+              ))}
+              {filtered.length === 0 && <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "6px 2px" }}>No hay resultados.</div>}
+            </div>
+            <label style={labelStyle}>O creá uno nuevo</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del ejercicio" style={textInputStyle} />
+              <button onClick={createAndChoose} style={{ ...primaryBtnStyle, padding: "10px 14px" }}><Icon name="plus" size={15} /></button>
+            </div>
+          </React.Fragment>
+        )}
+        {step === "config" && selected && (
+          <div>
+            <label style={labelStyle}>Rango objetivo (reps o segundos)</label>
+            <input value={repRange} onChange={(e) => setRepRange(e.target.value)} placeholder="Ej: 8-12 o 30-45 seg" style={textInputStyle} />
+            <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "10px 0" }}>
+              <input type="checkbox" checked={isTimed} onChange={(e) => setIsTimed(e.target.checked)} id="isTimed" />
+              <label htmlFor="isTimed" style={{ fontSize: 13, color: "var(--text-muted)" }}>Es un ejercicio por tiempo (segundos)</label>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div><label style={labelStyle}>Series</label><input type="number" value={sets} onChange={(e) => setSets(e.target.value)} style={textInputStyle} /></div>
+              <div><label style={labelStyle}>RPE objetivo</label><input type="number" value={rpe} onChange={(e) => setRpe(e.target.value)} style={textInputStyle} /></div>
+            </div>
+            <button onClick={() => onAdd(selected, repRange, sets, rpe, isTimed)} style={{ ...primaryBtnStyle, width: "100%", justifyContent: "center", marginTop: 18 }}><Icon name="check" size={16} /> Agregar a este día</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   PANTALLA: PROGRESO (gráficos + historial)
+--------------------------------------------------------- */
+function StatsScreen({ data }) {
+  const [view, setView] = useState("charts");
+  const exercisesWithData = useMemo(() => {
+    const ids = new Set();
+    data.sessions.forEach((s) => s.entries.forEach((e) => { if (e.sets.length > 0) ids.add(e.exerciseId); }));
+    return data.exercises.filter((e) => ids.has(e.id));
+  }, [data]);
+  const [selectedId, setSelectedId] = useState(exercisesWithData[0]?.id || null);
+  const selected = exercisesWithData.find((e) => e.id === selectedId);
+
+  const chartData = useMemo(() => {
+    if (!selected) return [];
+    const points = [];
+    data.sessions.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).forEach((session) => {
+      const relevant = session.entries.filter((e) => e.exerciseId === selected.id && e.sets.length > 0);
+      if (relevant.length === 0) return;
+      let maxWeight = 0, volume = 0;
+      relevant.forEach((entry) => entry.sets.forEach((s) => { maxWeight = Math.max(maxWeight, s.weight); volume += s.weight * s.reps; }));
+      const routine = data.routines.find((r) => r.id === session.routineId);
+      points.push({ date: session.date, dateLabel: fmtDateShort(session.date), maxWeight, volume, weekLabel: weekLabelFor(session, routine), routineName: routine?.name || "" });
+    });
+    return points;
+  }, [data, selected]);
+
+  const hasAnySessions = data.sessions.some((s) => s.entries.some((e) => e.sets.length > 0));
+  if (!hasAnySessions) {
+    return <div><TopBar title="Progreso" /><EmptyState iconName="trending" title="Todavía no hay datos" subtitle="Registrá al menos una sesión para empezar a ver tu evolución y tu historial acá." /></div>;
+  }
+
+  return (
+    <div>
+      <TopBar title="Progreso" />
+      <div style={{ padding: "0 20px" }}>
+        <ViewToggle view={view} setView={setView} />
+        {view === "charts" ? (
+          exercisesWithData.length === 0 ? (
+            <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "30px 4px", textAlign: "center" }}>Todavía no hay series completas registradas.</div>
+          ) : (
+            <React.Fragment>
+              <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 10 }} className="gt-scroll">
+                {exercisesWithData.map((ex) => (
+                  <button key={ex.id} onClick={() => setSelectedId(ex.id)} style={{ flexShrink: 0, padding: "8px 14px", borderRadius: 999, fontSize: 13, fontWeight: 600, border: "1px solid var(--border)", cursor: "pointer", background: selectedId === ex.id ? "var(--blue)" : "var(--surface)", color: selectedId === ex.id ? "#fff" : "var(--text)" }}>{ex.name}</button>
+                ))}
+              </div>
+              {chartData.length < 2 ? (
+                <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "30px 4px", textAlign: "center" }}>Registrá al menos 2 sesiones de "{selected?.name}" para ver el gráfico de evolución.</div>
+              ) : (
+                <React.Fragment>
+                  <ChartBlock title="Peso máximo por sesión" dataKey="maxWeight" color="var(--blue)" data={chartData} unit=" kg" />
+                  <ChartBlock title="Volumen total (peso × reps)" dataKey="volume" color="var(--green)" data={chartData} unit="" />
+                </React.Fragment>
+              )}
+            </React.Fragment>
+          )
+        ) : <SessionHistoryList data={data} />}
+      </div>
+    </div>
+  );
+}
+
+function ViewToggle({ view, setView }) {
+  return (
+    <div style={{ display: "flex", background: "var(--surface-alt)", borderRadius: 12, padding: 4, marginBottom: 14, gap: 4 }}>
+      {[{ key: "charts", label: "Gráficos", icon: "trending" }, { key: "history", label: "Historial", icon: "list" }].map(({ key, label, icon }) => (
+        <button key={key} onClick={() => setView(key)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "8px 0", borderRadius: 9, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 600, background: view === key ? "var(--surface)" : "transparent", color: view === key ? "var(--text)" : "var(--text-muted)", boxShadow: view === key ? "var(--shadow)" : "none" }}>
+          <Icon name={icon} size={14} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SessionHistoryList({ data }) {
+  const [dayFilter, setDayFilter] = useState("all");
+  const [openId, setOpenId] = useState(null);
+  const dayOptions = useMemo(() => {
+    const map = new Map();
+    data.routines.forEach((r) => r.days.forEach((d) => map.set(d.id, `${d.label} · ${r.name}`)));
+    return map;
+  }, [data]);
+  const sessions = useMemo(() => data.sessions.filter((s) => s.entries.some((e) => e.sets.length > 0)).filter((s) => dayFilter === "all" || s.dayId === dayFilter).sort((a, b) => (a.date < b.date ? 1 : -1)), [data, dayFilter]);
+
+  return (
+    <div>
+      <select value={dayFilter} onChange={(e) => setDayFilter(e.target.value)} style={{ ...textInputStyle, marginBottom: 14, fontSize: 13 }}>
+        <option value="all">Todos los días</option>
+        {[...dayOptions.entries()].map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+      </select>
+      {sessions.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--text-muted)", padding: "24px 4px", textAlign: "center" }}>No hay entrenamientos registrados para ese filtro.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {sessions.map((session) => {
+            const routine = data.routines.find((r) => r.id === session.routineId);
+            const day = routine?.days.find((d) => d.id === session.dayId);
+            const open = openId === session.id;
+            const totalSets = session.entries.reduce((acc, e) => acc + e.sets.length, 0);
+            return (
+              <div key={session.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, boxShadow: "var(--shadow)", overflow: "hidden" }}>
+                <button onClick={() => setOpenId(open ? null : session.id)} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", padding: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ textAlign: "left" }}>
+                    <div className="gt-display" style={{ fontWeight: 700, fontSize: 14.5 }}>{day?.label || "Día eliminado"}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{fmtDateLong(session.date)} · {routine?.name || "Rutina archivada"} · {totalSets} series</div>
+                  </div>
+                  <Icon name="chevronRight" size={16} color="var(--text-muted)" />
+                </button>
+                {open && (
+                  <div className="gt-fadeup" style={{ padding: "0 14px 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+                    {session.entries.filter((e) => e.sets.length > 0).map((entry) => {
+                      const ex = findExercise(data, entry.exerciseId);
+                      const planned = day?.exercises.find((p) => p.id === entry.plannedExerciseId);
+                      return (
+                        <div key={entry.plannedExerciseId} style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                            <span style={{ fontWeight: 600, fontSize: 13.5 }}>{ex?.name}</span>
+                            {planned && <span className="gt-mono" style={{ fontSize: 11, color: "var(--text-muted)" }}>objetivo: {planned.sets}×{planned.repRange} · RPE {planned.rpe}</span>}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(70px, 1fr))", gap: 6 }}>
+                            {entry.sets.map((s, i) => (
+                              <div key={i} style={{ background: "var(--surface-alt)", borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
+                                <div style={{ fontSize: 9.5, color: "var(--text-muted)", marginBottom: 2 }}>Serie {s.setNumber}</div>
+                                <div className="gt-mono" style={{ fontSize: 12.5, fontWeight: 700 }}>{s.weight}kg</div>
+                                <div className="gt-mono" style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{s.reps}{planned?.isTimed ? "s" : "r"} · RPE {s.rpe ?? "–"}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   PANTALLA: ARCHIVO
+--------------------------------------------------------- */
+function ArchiveScreen({ data, persist }) {
+  const archived = getArchivedRoutines(data);
+  const [openId, setOpenId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+
+  if (archived.length === 0) {
+    return <div><TopBar title="Archivo" /><EmptyState iconName="archive" title="Sin rutinas archivadas" subtitle="Cuando crees una rutina nueva, la anterior va a aparecer acá con su historial." /></div>;
+  }
+  const handleDelete = () => { deleteRoutine(data, persist, deleteTarget.id); setDeleteTarget(null); };
+
+  return (
+    <div>
+      <TopBar title="Archivo" />
+      <div style={{ padding: "0 20px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {archived.map((r) => {
+          const open = openId === r.id;
+          return (
+            <div key={r.id} style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: 14, boxShadow: "var(--shadow)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <button onClick={() => setOpenId(open ? null : r.id)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", padding: 0 }}>
+                  <div style={{ textAlign: "left" }}>
+                    <div className="gt-display" style={{ fontWeight: 700, fontSize: 14.5, color: "var(--text)" }}>{r.name}</div>
+                    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{fmtDateShort(r.startDate)} – {r.endDate ? fmtDateShort(r.endDate) : "?"}</div>
+                  </div>
+                  <Icon name="chevronRight" size={16} color="var(--text-muted)" />
+                </button>
+                <button onClick={() => setDeleteTarget(r)} style={{ background: "none", border: "none", color: "var(--danger)", cursor: "pointer", padding: 4, flexShrink: 0 }} aria-label="Eliminar rutina"><Icon name="trash" size={15} /></button>
+              </div>
+              {open && (
+                <div className="gt-fadeup" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+                  {r.days.map((day) => (
+                    <div key={day.id}>
+                      <div style={{ fontWeight: 600, fontSize: 12.5, marginBottom: 4 }}>{day.label}</div>
+                      {day.exercises.map((p) => {
+                        const ex = findExercise(data, p.exerciseId);
+                        return <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "var(--text-muted)", paddingLeft: 6 }}><span>{ex?.name}</span><span className="gt-mono">{p.sets}×{p.repRange} · RPE {p.rpe}</span></div>;
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {deleteTarget && (
+        <ConfirmModal title={`¿Eliminar "${deleteTarget.name}"?`}
+          message={(() => {
+            const count = data.sessions.filter((s) => s.routineId === deleteTarget.id).length;
+            return count > 0 ? `Esto también va a borrar ${count} entrenamiento${count !== 1 ? "s" : ""} registrado${count !== 1 ? "s" : ""} en esta rutina. Esta acción no se puede deshacer.` : "Esta acción no se puede deshacer.";
+          })()}
+          onConfirm={handleDelete} onCancel={() => setDeleteTarget(null)} />
+      )}
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
+   APP PRINCIPAL
+--------------------------------------------------------- */
+function GymTrackerApp() {
+  const { data, persist, saveState } = useGymData();
+  const [screen, setScreen] = useState("home");
+  const [logTarget, setLogTarget] = useState(null);
+  const goLog = (routineId, dayId) => { setLogTarget({ routineId, dayId }); setScreen("log"); };
+
+  return (
+    <div className="gt-root">
+      <div style={{ position: "absolute", top: 8, right: 14, zIndex: 25 }}><SaveIndicator state={saveState} /></div>
+      {screen === "home" && <HomeScreen data={data} goLog={goLog} goRoutine={() => setScreen("routine")} />}
+      {screen === "log" && logTarget && <LogSessionScreen data={data} persist={persist} routineId={logTarget.routineId} dayId={logTarget.dayId} goHome={() => setScreen("home")} />}
+      {screen === "routine" && <RoutineScreen data={data} persist={persist} />}
+      {screen === "stats" && <StatsScreen data={data} />}
+      {screen === "archive" && <ArchiveScreen data={data} persist={persist} />}
+      <BottomNav screen={screen} setScreen={setScreen} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<GymTrackerApp />);
+</script>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>
