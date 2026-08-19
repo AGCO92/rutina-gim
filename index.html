@@ -51,7 +51,7 @@
   button { -webkit-tap-highlight-color: transparent; }
   a { color: inherit; }
 
-  .topbar { position: sticky; top: 0; z-index: 10; background: var(--bg); display: flex; align-items: center; justify-content: space-between; padding: 18px 20px 12px; gap: 12px; }
+  .topbar { position: sticky; top: 0; z-index: 10; background: var(--bg); display: flex; align-items: center; justify-content: space-between; padding: calc(18px + env(safe-area-inset-top)) 20px 12px; gap: 12px; }
   .topbar-left { display: flex; align-items: center; gap: 10px; }
   .topbar h1 { font-size: 20px; font-weight: 700; margin: 0; }
   .icon-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--text); }
@@ -75,7 +75,7 @@
   .modal-box { background: var(--surface); border-radius: 18px; padding: 20px; width: 100%; max-width: 340px; box-shadow: var(--shadow); }
   .pill { flex-shrink: 0; padding: 8px 14px; border-radius: 999px; font-size: 13px; font-weight: 600; border: 1px solid var(--border); cursor: pointer; background: var(--surface); color: var(--text); }
   .pill.active { background: var(--blue); color: #fff; border-color: var(--blue); }
-  .save-indicator { position: absolute; top: 8px; right: 14px; z-index: 25; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+  .save-indicator { position: absolute; top: calc(8px + env(safe-area-inset-top)); right: 14px; z-index: 25; font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
 </style>
 </head>
 <body>
